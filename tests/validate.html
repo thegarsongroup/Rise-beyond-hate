@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signup rule tests</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 24px; background: #f8f4ee; color: #0d1b2e; }
+    li.pass::before { content: "✔ "; color: #13706c; }
+    li.fail::before { content: "✘ "; color: #c0392b; }
+    li.fail { color: #c0392b; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>Signup rule tests</h1>
+  <p id="summary"></p>
+  <ul id="results"></ul>
+  <script src="../validate.js"></script>
+  <script>
+    var V = window.RBHValidate, o = { minAge: 13, maxAge: 21 }, out = [];
+    function t(name, cond) { out.push({ name: name, ok: !!cond }); }
+    function k(age, extra) { return Object.assign({ firstName: "A", lastName: "B", age: String(age) }, extra || {}); }
+    var parent = { parentName: "P", parentPhone: "6125550100", parentEmail: "p@x.org", city: "BP" };
+
+    t("empty participant → 3 errors", Object.keys(V.checkKids([{ firstName: "", lastName: "", age: "" }], o)).length === 3);
+    t("age 12 rejected", V.checkKids([k(12)], o)["kid0.age"]);
+    t("age 22 rejected", V.checkKids([k(22)], o)["kid0.age"]);
+    t("age 15.5 rejected", V.checkKids([k("15.5")], o)["kid0.age"]);
+    t("age 13 accepted", !Object.keys(V.checkKids([k(13)], o)).length);
+    t("age 21 accepted", !Object.keys(V.checkKids([k(21)], o)).length);
+    t("second participant errors keyed kid1", V.checkKids([k(14), k("")], o)["kid1.age"]);
+    t("under 18 → parent required", V.contactRules({ kids: [k(15)] }).parentRequired);
+    t("18+ only, no parent → own contact required", V.contactRules({ kids: [k(19)] }).adultRequired);
+    t("18+ with complete parent → own contact optional", !V.contactRules(Object.assign({ kids: [k(19)] }, parent)).adultRequired);
+    t("mixed ages → parent required, adult optional", (function (r) { return r.parentRequired && !r.adultRequired; })(V.contactRules({ kids: [k(15), k(19)] })));
+    t("minor with no contact → parent ×3 + city errors", (function (e) { return ["parentName", "parentPhone", "parentEmail", "city"].every(function (x) { return e[x]; }); })(V.checkContact({ kids: [k(15)] })));
+    t("short phone flagged", V.checkContact(Object.assign({ kids: [k(15)] }, parent, { parentPhone: "555-01" })).parentPhone);
+    t("+1 (612) 555-0100 accepted", V.isPhone("+1 (612) 555-0100"));
+    t("bad email flagged", V.checkContact(Object.assign({ kids: [k(15)] }, parent, { parentEmail: "p@x" })).parentEmail);
+    t("valid minor signup passes", !Object.keys(V.checkContact(Object.assign({ kids: [k(15)] }, parent))).length);
+    t("18+ only needs own phone + email", (function (e) { return e["kid0.adultPhone"] && e["kid0.adultEmail"]; })(V.checkContact({ kids: [k(19)], city: "BP" })));
+    t("18+ with own contact passes", !Object.keys(V.checkContact({ kids: [k(19, { adultPhone: "6125550100", adultEmail: "a@x.org" })], city: "BP" })).length);
+    t("optional parent phone still format-checked", V.checkContact({ kids: [k(19, { adultPhone: "6125550100", adultEmail: "a@x.org" })], parentPhone: "12", city: "BP" }).parentPhone);
+    t("payload trims and drops minor's adult contact", (function (p) { return p.kids[0].adultPhone === "" && p.city === "BP" && p.kids[0].age === 15; })(V.toPayload({ kids: [k(15, { adultPhone: "x" })], city: " BP ", updates: true })));
+
+    var failed = out.filter(function (r) { return !r.ok; }).length;
+    document.getElementById("summary").textContent = (out.length - failed) + " of " + out.length + " passed";
+    document.getElementById("results").innerHTML = out.map(function (r) {
+      return '<li class="' + (r.ok ? "pass" : "fail") + '">' + r.name + "</li>";
+    }).join("");
+    document.title = failed ? "✘ " + failed + " failed" : "✔ all passed";
+  </script>
+</body>
+</html>
